@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://tatudrag0n.github.io/tatublog/sitemap.xml

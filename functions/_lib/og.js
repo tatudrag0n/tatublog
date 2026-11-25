@@ -258,6 +258,196 @@ export function articleKeyFromRequest(url) {
   return null;
 }
 
+// ---------------------------------------------------------------------------
+// SNS・検索クローラ向けの軽量HTML
+// index.html は全記事の本文を内包していて 4MB 超あるため、X（Twitterbot）などの
+// クローラは取得し切れずにカード生成を諦めることがある。クローラにだけは
+// メタタグ＋最小限の本文（数KB）を返す。通常のブラウザには今までどおり
+// 全機能入りの index.html を返す。
+// ---------------------------------------------------------------------------
+
+// リンクプレビューを作るボット・検索クローラの UA だけを対象にする。
+// 通常ブラウザ（Chrome / Safari / Firefox / Edg / OPR、LINE・WhatsApp などの
+// アプリ内ブラウザ）はここに当たらないよう、ボット名を具体的に並べる。
+export const CRAWLER_UA_RE = new RegExp(
+  '(' +
+    [
+      'Twitterbot',
+      'Slackbot', // Slackbot-LinkExpanding も含む
+      'Discordbot',
+      'facebookexternalhit',
+      'Facebot',
+      'LinkedInBot',
+      'TelegramBot',
+      'Pinterestbot',
+      'redditbot',
+      'Embedly',
+      'Iframely',
+      'SkypeUriPreview',
+      'Mastodon\\/',
+      'Misskey',
+      'Googlebot\\/',
+      'bingbot\\/',
+      'BingPreview\\/',
+      'Applebot\\/',
+      'YandexBot\\/',
+      'DuckDuckBot\\/',
+      'Baiduspider'
+    ].join('|') +
+  ')',
+  'i'
+);
+
+export function isCrawler(userAgent) {
+  const ua = String(userAgent || '');
+  if (!ua) return false;
+  return CRAWLER_UA_RE.test(ua);
+}
+
+// ARTICLES を先頭から limit 件ぶんだけ軽く読む（本文は読まない）。
+export function listArticles(html, limit = 10) {
+  const head = ARTICLES_HEAD_RE.exec(html);
+  if (!head) return [];
+  const re = /\n\s*"([A-Za-z0-9][A-Za-z0-9\-]*)"\s*:\s*\{/g;
+  re.lastIndex = head.index;
+  const marks = [];
+  let m;
+  while ((m = re.exec(html))) {
+    marks.push({ key: m[1], start: m.index + (m[0].startsWith('\n') ? 1 : 0) });
+    if (marks.length > limit) break; // 末尾の記事の範囲を決めるため1件多く拾う
+  }
+  const out = [];
+  for (let i = 0; i < marks.length && out.length < limit; i += 1) {
+    const end = i + 1 < marks.length ? marks[i + 1].start : html.length;
+    const entryText = html.slice(marks[i].start, end);
+    const title = fieldValue(entryText, 'title');
+    if (!title) continue;
+    out.push({
+      key: marks[i].key,
+      title,
+      cat: fieldValue(entryText, 'cat') || '',
+      date: fieldValue(entryText, 'date') || ''
+    });
+  }
+  return out;
+}
+
+function crawlerHead(seoBlock) {
+  return [
+    '<!doctype html>',
+    '<html lang="ja">',
+    '<head>',
+    '<meta charset="utf-8">',
+    '<meta name="viewport" content="width=device-width, initial-scale=1">',
+    seoBlock,
+    '</head>'
+  ].join('\n');
+}
+
+// 記事1件ぶんの軽量HTML（メタタグ＋タイトル・概要・リンクだけ）
+export function buildCrawlerArticleDocument(article, imageUrl) {
+  const url = articleUrl(article.key);
+  const description = article.description || SITE_DESCRIPTION;
+  return [
+    crawlerHead(buildSeoBlock(article, imageUrl)),
+    '<body>',
+    '<article>',
+    `<h1>${escapeHtml(article.title)}</h1>`,
+    `<p>${escapeHtml(description)}</p>`,
+    `<p><a href="${escapeHtml(url)}">記事を読む</a></p>`,
+    `<p>${escapeHtml(SITE_NAME)}（${escapeHtml(SITE_TITLE)}）</p>`,
+    '</article>',
+    '</body>',
+    '</html>'
+  ].join('\n');
+}
+
+// トップページの軽量HTML（サイトのメタタグ＋最新記事のリンク）
+export function buildCrawlerHomeDocument(html, imageUrl) {
+  const existing = SEO_RE.exec(html);
+  const image = imageUrl || DEFAULT_IMAGE;
+  const head = existing
+    ? existing[0]
+    : [
+        SEO_START,
+        `<meta name="description" content="${escapeHtml(SITE_DESCRIPTION)}">`,
+        `<link rel="canonical" href="${escapeHtml(SITE + '/')}">`,
+        `<meta property="og:site_name" content="${escapeHtml(SITE_NAME)}">`,
+        '<meta property="og:type" content="website">',
+        '<meta property="og:locale" content="ja_JP">',
+        `<meta property="og:title" content="${escapeHtml(SITE_TITLE)}">`,
+        `<meta property="og:description" content="${escapeHtml(SITE_DESCRIPTION)}">`,
+        `<meta property="og:url" content="${escapeHtml(SITE + '/')}">`,
+        `<meta property="og:image" content="${escapeHtml(image)}">`,
+        `<meta property="og:image:type" content="${imageType(image)}">`,
+        `<meta property="og:image:width" content="${OG_IMAGE_WIDTH}">`,
+        `<meta property="og:image:height" content="${OG_IMAGE_HEIGHT}">`,
+        '<meta name="twitter:card" content="summary_large_image">',
+        '<meta name="twitter:site" content="@tatudrag0n">',
+        '<meta name="twitter:creator" content="@tatudrag0n">',
+        `<meta name="twitter:title" content="${escapeHtml(SITE_TITLE)}">`,
+        `<meta name="twitter:description" content="${escapeHtml(SITE_DESCRIPTION)}">`,
+        `<meta name="twitter:image" content="${escapeHtml(image)}">`,
+        '<link rel="icon" href="data:,">',
+        `<title>${escapeHtml(SITE_TITLE)}</title>`,
+        SEO_END
+      ].join('\n');
+  const latest = listArticles(html, 10);
+  const items = latest.map(
+    (a) => `<li><a href="${escapeHtml(articlePath(a.key))}">${escapeHtml(a.title)}</a></li>`
+  );
+  return [
+    crawlerHead(head),
+    '<body>',
+    `<h1>${escapeHtml(SITE_NAME)}</h1>`,
+    `<p>${escapeHtml(SITE_DESCRIPTION)}</p>`,
+    '<ul>',
+    ...items,
+    '</ul>',
+    '</body>',
+    '</html>'
+  ].join('\n');
+}
+
+function crawlerResponse(request, body, extraHeaders) {
+  const headers = new Headers({
+    'content-type': 'text/html; charset=utf-8',
+    // クローラ向けの軽量版を通常ブラウザに配らないよう、キャッシュは持たせない
+    'cache-control': 'no-store',
+    vary: 'User-Agent',
+    'x-tatublog-render': 'crawler'
+  });
+  if (extraHeaders) {
+    for (const [k, v] of Object.entries(extraHeaders)) headers.set(k, v);
+  }
+  return new Response(request.method === 'HEAD' ? null : body, { status: 200, headers });
+}
+
+// クローラ向け：記事ページの軽量版（記事が無ければ null）
+export async function renderCrawlerArticlePage(request, env, url) {
+  const key = articleKeyFromRequest(url);
+  if (!key) return null;
+  const assetUrl = new URL('/index.html', url.origin);
+  const assetRes = await env.ASSETS.fetch(new Request(assetUrl.toString(), { method: 'GET' }));
+  if (!assetRes.ok) return null;
+  const html = await assetRes.text();
+  const article = extractArticle(html, key);
+  if (!article) return null;
+  const imageUrl = await resolveImageUrl(env, url.origin, article);
+  return crawlerResponse(request, buildCrawlerArticleDocument(article, imageUrl), {
+    'x-tatublog-article': article.key
+  });
+}
+
+// クローラ向け：トップページの軽量版
+export async function renderCrawlerHomePage(request, env, url) {
+  const assetUrl = new URL('/index.html', url.origin);
+  const assetRes = await env.ASSETS.fetch(new Request(assetUrl.toString(), { method: 'GET' }));
+  if (!assetRes.ok) return null;
+  const html = await assetRes.text();
+  return crawlerResponse(request, buildCrawlerHomeDocument(html, DEFAULT_IMAGE));
+}
+
 export async function renderArticlePage(request, env, url) {
   const key = articleKeyFromRequest(url);
   if (!key) return null;
@@ -272,6 +462,7 @@ export async function renderArticlePage(request, env, url) {
   const headers = new Headers({
     'content-type': 'text/html; charset=utf-8',
     'cache-control': 'public, max-age=300',
+    vary: 'User-Agent',
     'x-tatublog-article': article.key
   });
   return new Response(request.method === 'HEAD' ? null : body, { status: 200, headers });

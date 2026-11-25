@@ -15,6 +15,7 @@
 - `index.html` の `<head>` には `<!-- SEO:START -->` 〜 `<!-- SEO:END -->` の間に既定の OGP / Twitter カード用メタタグが入っている。
 - `functions/_middleware.js`（＋`functions/_lib/og.js`）が `/p/<記事キー>` と `?p=<記事キー>` のリクエスト時に、`ARTICLES` からタイトル・概要・画像を読んでメタタグを記事専用に差し替える。
 - 既定画像は `og-default.png`（1200×630、PNG）。記事ごとの画像を出したいときは `og/<記事キー>.jpg`（1200×630、JPEG）を置く。無い記事は既定画像になる。
+- **SNS・検索クローラ向けの軽量HTML**: `index.html` は全記事の本文を内包していて 4MB 超あるため、X（Twitterbot）などのクローラが取得し切れずカードが出ないことがあった。`Twitterbot` / `Slackbot` / `Discordbot` / `facebookexternalhit` / `bingbot` などの UA には、`/p/<記事キー>` と `/` でメタタグ＋最小限の本文だけの軽量HTML（約3〜4KB）を返す（`Vary: User-Agent`・`cache-control: no-store`）。通常のブラウザには今までどおり全機能版を返す。判定は `functions/_lib/og.js` の `isCrawler()`。
 - `_routes.json` で Functions を呼ぶのは `/` と `/p/*` だけに絞っている。
 
 ## テスト
@@ -23,4 +24,4 @@
 node tools/check-og.mjs
 ```
 
-インラインJSの構文、`ARTICLES` 全件のメタ抽出、OGP画像ファイル、`/p/<key>` のメタタグ差し替え、URLルーティングを確認する（依存パッケージなし）。
+インラインJSの構文、`ARTICLES` 全件のメタ抽出、OGP画像ファイル、`/p/<key>` のメタタグ差し替え、URLルーティング、クローラ向け軽量HTML（サイズ・メタタグ・通常ブラウザへの非適用）を確認する（依存パッケージなし）。

@@ -11,8 +11,10 @@ import vm from 'node:vm';
 import {
   extractArticle,
   renderArticlePage,
+  isCrawler,
   DEFAULT_IMAGE
 } from '../functions/_lib/og.js';
+import { onRequest } from '../functions/_middleware.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const html = readFileSync(join(root, 'index.html'), 'utf8');
@@ -174,6 +176,81 @@ ok(c2.history.calls[0] === '/', 'clearArticleUrl pushes /', c2.history.calls[0])
 const c3 = rctx({ pathname: '/tatublog/', hostname: 'tatudrag0n.github.io' });
 c3.setArticleUrl('ai-main');
 ok(c3.history.calls[0] === '/tatublog#ai-main', 'github.io keeps hash URLs', c3.history.calls[0]);
+
+// 6) クローラ（X など）への軽量レスポンス
+console.log('[6] crawler lightweight response');
+ok(isCrawler('Twitterbot/1.0'), 'Twitterbot is a crawler');
+ok(isCrawler('Mozilla/5.0 (compatible; Twitterbot/1.0)'), 'Twitterbot (compatible form) is a crawler');
+ok(isCrawler('Slackbot-LinkExpanding 1.0 (+https://api.slack.com/robots)'), 'Slackbot is a crawler');
+ok(isCrawler('Discordbot/2.0; +https://discordapp.com'), 'Discordbot is a crawler');
+ok(isCrawler('facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)'), 'facebookexternalhit is a crawler');
+ok(isCrawler('Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)'), 'bingbot is a crawler');
+ok(!isCrawler('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'), 'desktop Chrome is not a crawler');
+ok(!isCrawler('Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36'), 'mobile Chrome is not a crawler');
+ok(!isCrawler('Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1'), 'iOS Safari is not a crawler');
+ok(!isCrawler('Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 Line/14.20.0'), 'LINE in-app browser is not a crawler');
+ok(!isCrawler(''), 'empty user agent is not a crawler');
+
+const CHROME =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+async function callMiddleware({ path, ua, method = 'GET' }) {
+  const url = new URL('https://tech.mct-official.com' + path);
+  const headers = ua ? { 'user-agent': ua } : {};
+  const request = new Request(url, { method, headers });
+  let nextCalled = false;
+  const res = await onRequest({
+    request,
+    env,
+    next: async () => {
+      nextCalled = true;
+      return new Response(html, { headers: { 'content-type': 'text/html; charset=utf-8' } });
+    }
+  });
+  return { res, nextCalled };
+}
+
+// X のクローラには記事ページの軽量版
+const crawlerArticle = await callMiddleware({ path: `/p/${target}`, ua: 'Twitterbot/1.0' });
+ok(!crawlerArticle.nextCalled, 'crawler article is served by the function');
+const crawlerBody = await crawlerArticle.res.text();
+ok(crawlerArticle.res.status === 200, 'crawler article returns 200');
+ok(crawlerBody.length < 20000, 'crawler article HTML is lightweight', `${crawlerBody.length} bytes`);
+ok(crawlerBody.includes(`<meta property="og:title" content="${title.replace(/"/g, '&quot;')}">`), 'crawler article has og:title');
+ok(crawlerBody.includes('<meta name="twitter:card" content="summary_large_image">'), 'crawler article has twitter:card');
+ok(/<meta property="og:image" content="https:\/\/tech\.mct-official\.com\/(og\/[^"]+\.jpg|og-default\.png)">/.test(crawlerBody), 'crawler article has absolute og:image');
+ok(crawlerBody.includes(`<link rel="canonical" href="https://tech.mct-official.com/p/${target}">`), 'crawler article has canonical');
+ok(crawlerBody.trim().endsWith('</html>'), 'crawler article HTML is complete');
+ok(crawlerArticle.res.headers.get('x-tatublog-render') === 'crawler', 'crawler response is marked');
+ok(/user-agent/i.test(crawlerArticle.res.headers.get('vary') || ''), 'crawler response has Vary: User-Agent');
+ok(/no-store/.test(crawlerArticle.res.headers.get('cache-control') || ''), 'crawler response is not cached');
+
+// ?p=<key> でも同じ
+const crawlerQuery = await callMiddleware({ path: `/?p=${target}&card=ok`, ua: 'Twitterbot/1.0' });
+const crawlerQueryBody = await crawlerQuery.res.text();
+ok(crawlerQueryBody.length < 20000 && crawlerQueryBody.includes('og:title'), 'crawler ?p= is lightweight too', `${crawlerQueryBody.length} bytes`);
+
+// トップページも軽量版
+const crawlerHome = await callMiddleware({ path: '/', ua: 'Twitterbot/1.0' });
+ok(!crawlerHome.nextCalled, 'crawler home is served by the function');
+const crawlerHomeBody = await crawlerHome.res.text();
+ok(crawlerHomeBody.length < 20000, 'crawler home HTML is lightweight', `${crawlerHomeBody.length} bytes`);
+ok(crawlerHomeBody.includes('twitter:card'), 'crawler home has twitter:card');
+ok(crawlerHomeBody.includes('たつどら テックノート'), 'crawler home has site title');
+ok((crawlerHomeBody.match(/href="\/p\//g) || []).length >= 5, 'crawler home lists recent articles');
+
+// 通常ブラウザは今までどおり全機能版
+const browserArticle = await callMiddleware({ path: `/p/${target}`, ua: CHROME });
+const browserBody = await browserArticle.res.text();
+ok(browserBody.length > 1000000, 'browser article is the full index.html', `${browserBody.length} bytes`);
+ok(!browserArticle.res.headers.get('x-tatublog-render'), 'browser response is not the crawler version');
+const browserHome = await callMiddleware({ path: '/', ua: CHROME });
+ok(browserHome.nextCalled, 'browser home falls through to the static asset');
+
+// HEAD と未知キー
+const crawlerHead = await callMiddleware({ path: `/p/${target}`, ua: 'Twitterbot/1.0', method: 'HEAD' });
+ok(crawlerHead.res.status === 200, 'crawler HEAD returns 200');
+const crawlerUnknown = await callMiddleware({ path: '/p/no-such-key', ua: 'Twitterbot/1.0' });
+ok(crawlerUnknown.nextCalled, 'unknown key still falls back to the static asset');
 
 console.log(failures === 0 ? '\nALL PASS' : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);

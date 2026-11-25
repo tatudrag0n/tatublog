@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://tatudrag0n.github.io/tatublog/sitemap.xml
+Sitemap: https://tech.mct-official.com/sitemap.xml

@@ -4,9 +4,29 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
+<!-- SEO:START -->
 <meta name="description" content="AIの新モデルやHugging Face、個人開発ツールの話と、自分が使っているPC・ガジェットの記録。たつどら運営。">
+<link rel="canonical" href="https://tech.mct-official.com/">
+<meta property="og:site_name" content="たつどら テックノート">
+<meta property="og:type" content="website">
+<meta property="og:locale" content="ja_JP">
+<meta property="og:title" content="たつどら テックノート｜AIモデル・ガジェット・実機レビュー">
+<meta property="og:description" content="AIの新モデルやHugging Face、個人開発ツールの話と、自分が使っているPC・ガジェットの記録。たつどら運営。">
+<meta property="og:url" content="https://tech.mct-official.com/">
+<meta property="og:image" content="https://tech.mct-official.com/og-default.png">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="AI作業用のデスクイメージ（ミニPC＋モニター＋キーボード）">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:site" content="@tatudrag0n">
+<meta name="twitter:creator" content="@tatudrag0n">
+<meta name="twitter:title" content="たつどら テックノート｜AIモデル・ガジェット・実機レビュー">
+<meta name="twitter:description" content="AIの新モデルやHugging Face、個人開発ツールの話と、自分が使っているPC・ガジェットの記録。たつどら運営。">
+<meta name="twitter:image" content="https://tech.mct-official.com/og-default.png">
 <link rel="icon" href="data:,">
-<title>アフィリエイトブログ</title>
+<title>たつどら テックノート｜AIモデル・ガジェット・実機レビュー</title>
+<!-- SEO:END -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&family=Shippori+Mincho+B1:wght@600;700;800&display=swap" rel="stylesheet">
@@ -965,23 +985,59 @@ currentFilter = f; applyFilter();
 var reader = document.getElementById("reader");
 var currentArticleId = null;
 
-function articleKeyFromHash(){
-var h = location.hash ? String(location.hash).replace(/^#/, "") : "";
-if(!h) return null;
-try { h = decodeURIComponent(h); } catch(e){ return null; }
-return Object.prototype.hasOwnProperty.call(ARTICLES, h) ? h : null;
+var SITE_TITLE_DEFAULT = "たつどら テックノート｜AIモデル・ガジェット・実機レビュー";
+
+// ---- 記事URL: /p/<key> と ?p=<key>、従来の #<key> の3通りを扱う ----
+// GitHub Pages のミラー（*.github.io）はサーバー側の書き換えができないので、そこだけ従来の #<key> を使う。
+var USE_PATH_ROUTING = !/(^|\.)github\.io$/i.test(location.hostname);
+var SITE_BASE = (function(){
+var p = location.pathname || "/";
+var m = p.match(/^(.*?)\/p\/[^\/]+\/?$/);
+if(m) return m[1].replace(/\/+$/, "");
+if(/\/index\.html?$/i.test(p)) return p.replace(/\/index\.html?$/i, "");
+return p.replace(/\/+$/, "");
+})();
+
+function normalizeArticleKey(v){
+if(v == null) return null;
+var k = String(v);
+try { k = decodeURIComponent(k); } catch(e){ return null; }
+return Object.prototype.hasOwnProperty.call(ARTICLES, k) ? k : null;
 }
 
-function setArticleHash(id){
+function articleKeyFromLocation(){
+if(USE_PATH_ROUTING){
+var m = (location.pathname || "").match(/\/p\/([^\/]+)\/?$/);
+if(m) return normalizeArticleKey(m[1]);
+var q = (location.search || "").match(/[?&]p=([^&]*)/);
+if(q) return normalizeArticleKey(q[1]);
+}
+return normalizeArticleKey(location.hash ? String(location.hash).replace(/^#/, "") : "");
+}
+
+function setArticleUrl(id){
+if(USE_PATH_ROUTING){
+var u = SITE_BASE + "/p/" + encodeURIComponent(id);
+if(location.pathname === u && !location.search && !location.hash) return;
+try { history.pushState({article:id}, "", u); }
+catch(e){ location.hash = id; }
+return;
+}
 var h = "#" + encodeURIComponent(id);
 if(location.hash === h) return;
-try { history.pushState({article:id}, "", h); }
+try { history.pushState({article:id}, "", (SITE_BASE || location.pathname) + location.search + h); }
 catch(e){ location.hash = id; }
 }
 
-function clearArticleHash(){
+function clearArticleUrl(){
+if(USE_PATH_ROUTING){
+if(location.pathname === (SITE_BASE + "/") && !location.search && !location.hash) return;
+try { history.pushState({}, "", SITE_BASE + "/"); }
+catch(e){ location.hash = ""; }
+return;
+}
 if(!location.hash) return;
-try { history.pushState({}, "", location.pathname + location.search); }
+try { history.pushState({}, "", (SITE_BASE || location.pathname) + location.search); }
 catch(e){ location.hash = ""; }
 }
 
@@ -989,7 +1045,7 @@ function openArticle(id, pushHistory){
 id = id == null ? "" : String(id);
 var a = ARTICLES[id]; if(!a) return;
 if(currentArticleId === id && reader.classList.contains("open")){
-if(pushHistory !== false) setArticleHash(id);
+if(pushHistory !== false) setArticleUrl(id);
 return;
 }
 var html = "";
@@ -1007,11 +1063,12 @@ html += '<div class="product-box"><span class="lbl">公式サイト</span>' + a.
 }
 document.getElementById("readerContent").innerHTML = html;
 currentArticleId = id;
+document.title = a.title + "｜たつどら テックノート";
 reader.classList.add("open");
 reader.scrollTop = 0;
 document.body.style.overflow = "hidden";
 document.getElementById("backBtn").focus();
-if(pushHistory !== false) setArticleHash(id);
+if(pushHistory !== false) setArticleUrl(id);
 }
 
 function closeArticle(pushHistory){
@@ -1019,11 +1076,12 @@ if(!reader.classList.contains("open")) return;
 reader.classList.remove("open");
 document.body.style.overflow = "";
 currentArticleId = null;
-if(pushHistory !== false) clearArticleHash();
+document.title = SITE_TITLE_DEFAULT;
+if(pushHistory !== false) clearArticleUrl();
 }
 
-function syncArticleFromHash(){
-var id = articleKeyFromHash();
+function syncArticleFromLocation(){
+var id = articleKeyFromLocation();
 if(id){
 if(currentArticleId !== id) openArticle(id, false);
 } else if(currentArticleId){
@@ -1041,14 +1099,14 @@ if(t && t.getAttribute && t.getAttribute("data-open-article")){ e.preventDefault
 });
 document.getElementById("backBtn").addEventListener("click", function(){ closeArticle(); });
 document.addEventListener("keydown", function(e){ if(e.key === "Escape") closeArticle();});
-window.addEventListener("hashchange", syncArticleFromHash);
-window.addEventListener("popstate", syncArticleFromHash);
+window.addEventListener("hashchange", syncArticleFromLocation);
+window.addEventListener("popstate", syncArticleFromLocation);
 
 // 記事総数は ARTICLES の実数から描画する（毎朝の記事追加で表記がズレないように）
 var articleCount = Object.keys(ARTICLES).length;
 document.querySelectorAll("[data-article-count]").forEach(function(el){ el.textContent = String(articleCount); });
 
-syncArticleFromHash();
+syncArticleFromLocation();
 </script>
 </body>
 </html>

@@ -265,7 +265,7 @@ nav.main{margin-left:0}
 <div>
 <h1>AIのニュースと、<em>自分の机まわり</em>の話。</h1>
 <p class="lead">AIの新モデルと、自分の机まわりの記録。書く前に、公式発表とモデルカードで確かめる。それだけ決めている。</p>
-<div class="hero-meta"><span>書いてる人：たつどら</span><span>最終更新：2026年11月25日</span><span>記事：全49本</span></div>
+<div class="hero-meta"><span>書いてる人：たつどら</span><span>最終更新：2026年11月25日</span><span>記事：全<span data-article-count>49</span>本</span></div>
 <div class="hero-cta">
 <a class="btn btn-primary" href="#articles">記事一覧へ</a>
 <a class="btn btn-ghost" href="#compare">モデル早見表</a>
@@ -355,7 +355,7 @@ nav.main{margin-left:0}
 
 <!-- ARTICLES -->
 <section id="articles"><div class="wrap">
-<div class="sec-head"><h2>記事一覧（全49本）</h2><p>新しい順。カテゴリは9つに固定していて、上のボタンで絞り込める。タイトルを押すと本文が開く。</p></div>
+<div class="sec-head"><h2>記事一覧（全<span data-article-count>49</span>本）</h2><p>新しい順。カテゴリは9つに固定していて、上のボタンで絞り込める。タイトルを押すと本文が開く。</p></div>
 <div class="grid" id="articleGrid">
 <button class="card" data-cat="sale" data-id="rakuten-wireless-earphones-10000-2026" data-search="楽天 ワイヤレスイヤホン 1万円以下 gracevally x1 anker soundcore v20i k20i ケースbyケース 41h benileaf t26 bluetooth anc enc ノイズキャンセリング オープンイヤー カナル型 インナーイヤー">
 <span class="thumb"><span class="ph ph-sale">楽天 1万円以下<br>ワイヤレスイヤホン5選</span></span>
@@ -781,7 +781,7 @@ nav.main{margin-left:0}
 <footer><div class="wrap">
 <div class="cols">
 <div>
-<p style="margin:0 0 6px"><strong style="color:var(--ink)">たつどら テックノート</strong> — 新AIモデル、新ローカルモデル・その他モデル、セキュリティ関連、主要メーカーの新作ガジェット、その他革新的なガジェット、Amazonのセール商品、実機レビュー、AI社会情勢やITの機運について、イラスト・小説とAIの付き合い方についての9カテゴリで書くブログ（記事46本）</p>
+<p style="margin:0 0 6px"><strong style="color:var(--ink)">たつどら テックノート</strong> — 新AIモデル、新ローカルモデル・その他モデル、セキュリティ関連、主要メーカーの新作ガジェット、その他革新的なガジェット、Amazonのセール商品、実機レビュー、AI社会情勢やITの機運について、イラスト・小説とAIの付き合い方についての9カテゴリで書くブログ（記事<span data-article-count>49</span>本）</p>
 <p style="margin:0">Amazon、Amazon.co.jp およびそれらのロゴは、Amazon.com, Inc. またはその関連会社の商標です。本サイトのAmazonリンクはAmazonアソシエイトのアフィリエイトリンクです。</p>
 <p style="margin:6px 0 0">記事の内容は2026年11月17日時点の情報です。仕様・価格は変更される場合があります。</p>
 </div>
@@ -1043,6 +1043,11 @@ document.getElementById("backBtn").addEventListener("click", function(){ closeAr
 document.addEventListener("keydown", function(e){ if(e.key === "Escape") closeArticle();});
 window.addEventListener("hashchange", syncArticleFromHash);
 window.addEventListener("popstate", syncArticleFromHash);
+
+// 記事総数は ARTICLES の実数から描画する（毎朝の記事追加で表記がズレないように）
+var articleCount = Object.keys(ARTICLES).length;
+document.querySelectorAll("[data-article-count]").forEach(function(el){ el.textContent = String(articleCount); });
+
 syncArticleFromHash();
 </script>
 </body>

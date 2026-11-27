@@ -1,0 +1,4 @@
+# 生成ツールが取得する作業用フォント（tools/generate-og.py が自動ダウンロード）
+tools/.fonts/
+__pycache__/
+*.pyc

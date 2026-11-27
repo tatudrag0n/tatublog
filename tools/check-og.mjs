@@ -2,8 +2,9 @@
 //   node tools/check-og.mjs
 // 1) index.html のインラインJSが構文として壊れていないか
 // 2) ARTICLES の全キーが記事メタ抽出（functions/_lib/og.js）と一致するか
-// 3) 記事画像つきの記事に og/<key>.jpg があるか / og-default.png があるか
+// 3) og/<key>.jpg が JPEG か / og-default.png があるか / 記事キーと対応しているか
 // 4) /p/<key> のメタタグ差し替え結果に og:title / og:image / twitter:card が入るか
+//    （画像は og/<key>.jpg → 無ければ og-default.png の順で選ばれる）
 import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -11,6 +12,7 @@ import vm from 'node:vm';
 import {
   extractArticle,
   renderArticlePage,
+  resolveImageUrl,
   isCrawler,
   DEFAULT_IMAGE
 } from '../functions/_lib/og.js';
@@ -87,23 +89,30 @@ ok(
   existsSync(png) && readFileSync(png).subarray(0, 8).toString('hex') === '89504e470d0a1a0a',
   'og-default.png is a PNG'
 );
-for (const key of imageKeys) {
-  const f = join(root, 'og', `${key}.jpg`);
-  const has = existsSync(f);
-  ok(has && statSync(f).size > 10000, `og/${key}.jpg for article image`);
-  if (has) {
-    const head = readFileSync(f).subarray(0, 2).toString('hex');
-    ok(head === 'ffd8', `og/${key}.jpg is a JPEG`);
+const ogDir = join(root, 'og');
+const jpgs = existsSync(ogDir)
+  ? readdirSync(ogDir).filter((f) => /\.jpe?g$/i.test(f))
+  : [];
+let badJpeg = 0;
+for (const f of jpgs) {
+  const p = join(ogDir, f);
+  const head = readFileSync(p).subarray(0, 2).toString('hex');
+  if (head !== 'ffd8' || statSync(p).size < 5000) {
+    badJpeg += 1;
+    console.log(`  FAIL og/${f} is a JPEG`, head);
   }
 }
-const ogDir = join(root, 'og');
-if (existsSync(ogDir)) {
-  const files = readdirSync(ogDir).filter((f) => /\.jpe?g$/i.test(f));
-  const orphans = files
-    .map((f) => f.replace(/\.jpe?g$/i, ''))
-    .filter((k) => !keys.includes(k));
-  ok(orphans.length === 0, 'no orphan og images', orphans.join(','));
+ok(badJpeg === 0, `all ${jpgs.length} og/*.jpg are JPEGs`);
+for (const key of imageKeys) {
+  const has = jpgs.includes(`${key}.jpg`);
+  ok(has, `og/${key}.jpg for article with inline image`);
 }
+const jpgKeys = jpgs.map((f) => f.replace(/\.jpe?g$/i, ''));
+const orphans = jpgKeys.filter((k) => !keys.includes(k));
+ok(orphans.length === 0, 'no orphan og images', orphans.join(','));
+// 記事のカバー率（未生成の記事があると既定画像のままになるので数だけ出す）
+const covered = keys.filter((k) => jpgKeys.includes(k));
+console.log(`  info og/<key>.jpg がある記事: ${covered.length}/${keys.length}`);
 
 // 4) レスポンス差し替え
 console.log('[4] /p/<key> rendered meta');
@@ -133,12 +142,32 @@ ok(out.includes(`<title>${title}｜たつどら テックノート</title>`), '<
 ok(out.indexOf('<!-- SEO:START -->') === out.lastIndexOf('<!-- SEO:START -->'), 'single SEO block');
 ok((out.match(/<meta property="og:title"/g) || []).length === 1, 'one og:title tag');
 
-// 画像なし記事はデフォルト画像
+// 記事専用の OG 画像が og:image / twitter:image に入る
+ok(out.includes(`content="https://tech.mct-official.com/og/${target}.jpg"`), 'og:image is og/<key>.jpg');
+ok((out.match(/<meta name="twitter:image" content="https:\/\/tech\.mct-official\.com\/og\//g) || []).length === 1, 'twitter:image is og/<key>.jpg');
+
+// ?p= でも同じ（画像つき記事）
 const url2 = new URL('https://tech.mct-official.com/?p=ai-anthropic-ipo-2026');
 const res2 = await renderArticlePage(new Request(url2), env, url2);
 const out2 = res2 ? await res2.text() : '';
-ok(out2.includes(`content="${DEFAULT_IMAGE}"`), '?p= works and falls back to default image');
+ok(out2.includes('content="https://tech.mct-official.com/og/ai-anthropic-ipo-2026.jpg"'), '?p= uses og/<key>.jpg');
 ok(out2.includes('<title>Anthropicがナスダックに上場'), '&p= rewrites title');
+
+// 画像が無い記事はデフォルト画像（og/<key>.jpg が存在しないキーで確認）
+const origin = 'https://tech.mct-official.com';
+ok(
+  (await resolveImageUrl(env, origin, { key: 'no-such-article-key' })) === DEFAULT_IMAGE,
+  'missing og/<key>.jpg falls back to DEFAULT_IMAGE'
+);
+ok(
+  (await resolveImageUrl(env, origin, { key: target })) === `${origin}/og/${target}.jpg`,
+  'existing og/<key>.jpg is used'
+);
+ok(
+  (await resolveImageUrl(env, origin, { key: target, absoluteImage: 'https://example.com/a.png' })) ===
+    'https://example.com/a.png',
+  'absoluteImage takes priority'
+);
 
 // 存在しないキーは null（静的アセットへフォールバック）
 const url3 = new URL('https://tech.mct-official.com/p/unknown-key');

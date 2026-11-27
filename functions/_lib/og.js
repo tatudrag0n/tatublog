@@ -225,11 +225,13 @@ export function renderArticleHtml(html, article, imageUrl) {
   return html.replace('</head>', block + '\n</head>');
 }
 
-// 記事に画像がある場合は og/<key>.jpg（ビルド時に data URI から書き出したもの）を使い、
-// 無ければデフォルト画像に戻す。存在確認はアセットへのHEAD相当（GETしてヘッダのみ見る）で行う。
+// 記事の OGP 画像を決める。
+// - 記事データに絶対URLの画像があればそれを使う
+// - それ以外は og/<key>.jpg（tools/generate-og.py が記事タイトル＋カテゴリで生成した
+//   1200x630 のカード画像）を使い、無ければデフォルト画像に戻す。
+//   存在確認はアセットへのGET（ヘッダのみ見る）で行う。
 export async function resolveImageUrl(env, origin, article) {
   if (article.absoluteImage) return article.absoluteImage;
-  if (!article.isDataImage) return DEFAULT_IMAGE;
   const candidate = origin + '/og/' + encodeURIComponent(article.key) + '.jpg';
   try {
     const res = await env.ASSETS.fetch(new Request(candidate, { method: 'GET' }));
